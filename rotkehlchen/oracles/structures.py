@@ -14,6 +14,7 @@ class CurrentPriceOracle(OracleSource):
     FIAT = auto()
     DEFILLAMA = auto()
     ALCHEMY = auto()
+    YAHOOFINANCE = auto()
 
 
 DEFAULT_CURRENT_PRICE_ORACLES_ORDER = (
@@ -31,4 +32,5 @@ SETTABLE_CURRENT_PRICE_ORACLES = {  # only these oracles should be configurable 
     CurrentPriceOracle.ALCHEMY,
     CurrentPriceOracle.UNISWAPV2,
     CurrentPriceOracle.UNISWAPV3,
+    CurrentPriceOracle.YAHOOFINANCE,
 }

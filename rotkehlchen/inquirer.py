@@ -336,6 +336,7 @@ class Inquirer:
     _alchemy: 'Alchemy'
     _defillama: 'Defillama'
     _manualcurrent: 'ManualCurrentOracle'
+    _yahoofinance: 'YahooFinance'
     _uniswapv2: Optional['UniswapV2Oracle'] = None
     _uniswapv3: Optional['UniswapV3Oracle'] = None
     _evm_managers: dict[ChainID, 'EvmManager']
@@ -357,71 +358,99 @@ class Inquirer:
             defillama: Optional['Defillama'] = None,
             alchemy: Optional['Alchemy'] = None,
             manualcurrent: Optional['ManualCurrentOracle'] = None,
+            yahoofinance: Optional['YahooFinance'] = None,
             msg_aggregator: Optional['MessagesAggregator'] = None,
     ) -> 'Inquirer':
         if Inquirer.__instance is not None:
             return Inquirer.__instance
 
-        error_msg = 'arguments should be given at the first instantiation'
-        assert data_dir, error_msg
-        assert cryptocompare, error_msg
-        assert coingecko, error_msg
-        assert defillama, error_msg
-        assert alchemy, error_msg
-        assert manualcurrent, error_msg
-        assert msg_aggregator, error_msg
+        assert data_dir, 'arguments should be given at the first instantiation'
+        assert cryptocompare, 'arguments should be given at the first instantiation'
+        assert coingecko, 'arguments should be given at the first instantiation'
+        assert defillama, 'arguments should be given at the first instantiation'
+        assert alchemy, 'arguments should be given at the first instantiation'
+        assert manualcurrent, 'arguments should be given at the first instantiation'
+        # Yahoo Finance is optional for now
+        assert msg_aggregator, 'arguments should be given at the first instantiation'
 
         Inquirer.__instance = object.__new__(cls)
-
+        Inquirer.__instance._cached_forex_data = {}
+        Inquirer.__instance._cached_current_price = LRUCacheWithRemove(1024)
         Inquirer.__instance._data_directory = data_dir
-        Inquirer._cryptocompare = cryptocompare
-        Inquirer._coingecko = coingecko
-        Inquirer._defillama = defillama
-        Inquirer._alchemy = alchemy
-        Inquirer._manualcurrent = manualcurrent
-        Inquirer._cached_current_price = LRUCacheWithRemove(maxsize=1024)
-        Inquirer._evm_managers = {}
-        Inquirer._msg_aggregator = msg_aggregator
-        Inquirer.special_tokens = {
-            A_YV1_DAIUSDCTBUSD.identifier,
-            A_CRVP_DAIUSDCTBUSD.identifier,
-            A_CRVP_DAIUSDCTTUSD.identifier,
-            A_YV1_DAIUSDCTTUSD.identifier,
-            A_YV1_DAIUSDCTTUSD.identifier,
-            A_CRVP_RENWSBTC.identifier,
-            A_YV1_RENWSBTC.identifier,
-            A_CRV_RENWBTC.identifier,
-            A_CRV_YPAX.identifier,
-            A_CRV_GUSD.identifier,
-            A_CRV_3CRV.identifier,
-            A_YV1_3CRV.identifier,
-            A_CRV_3CRVSUSD.identifier,
-            A_YV1_ALINK.identifier,
-            A_YV1_DAI.identifier,
-            A_YV1_WETH.identifier,
-            A_YV1_YFI.identifier,
-            A_YV1_USDT.identifier,
-            A_YV1_USDC.identifier,
-            A_YV1_TUSD.identifier,
-            A_YV1_GUSD.identifier,
+        Inquirer.__instance._cryptocompare = cryptocompare
+        Inquirer.__instance._coingecko = coingecko
+        Inquirer.__instance._defillama = defillama
+        Inquirer.__instance._alchemy = alchemy
+        Inquirer.__instance._manualcurrent = manualcurrent
+        Inquirer.__instance._yahoofinance = yahoofinance
+        Inquirer.__instance._msg_aggregator = msg_aggregator
+        Inquirer.__instance._evm_managers = {}
+        Inquirer.__instance.special_tokens = {
+            A_ETH2.identifier,
+            A_KFEE.identifier,
+            A_FARM_CRVRENWBTC.identifier,
+            A_FARM_DAI.identifier,
+            A_FARM_RENBTC.identifier,
+            A_FARM_TUSD.identifier,
             A_FARM_USDC.identifier,
             A_FARM_USDT.identifier,
-            A_FARM_DAI.identifier,
-            A_FARM_TUSD.identifier,
-            A_FARM_WETH.identifier,
             A_FARM_WBTC.identifier,
-            A_FARM_RENBTC.identifier,
-            A_FARM_CRVRENWBTC.identifier,
+            A_FARM_WETH.identifier,
+            A_YV1_ALINK.identifier,
+            A_YV1_DAI.identifier,
+            A_YV1_TUSD.identifier,
+            A_YV1_USDC.identifier,
+            A_YV1_USDT.identifier,
+            A_YV1_WETH.identifier,
+            A_YV1_YFI.identifier,
+            A_YV1_3CRV.identifier,
+            A_YV1_GUSD.identifier,
+            A_YV1_DAIUSDCTTUSD.identifier,
+            A_YV1_DAIUSDCTBUSD.identifier,
+            A_YV1_RENWSBTC.identifier,
+            A_CRV_3CRV.identifier,
+            A_CRV_GUSD.identifier,
+            A_CRV_RENWBTC.identifier,
+            A_CRV_YPAX.identifier,
+            A_CRV_3CRVSUSD.identifier,
+            A_CRVP_DAIUSDCTTUSD.identifier,
+            A_CRVP_DAIUSDCTBUSD.identifier,
+            A_CRVP_RENWSBTC.identifier,
             A_3CRV.identifier,
-            'eip155:1/erc20:0x815C23eCA83261b6Ec689b60Cc4a58b54BC24D8D',  # vTHOR
+            A_BSQ.identifier,
         }
-        try:
-            Inquirer.usd = A_USD.resolve_to_fiat_asset()
-            Inquirer.weth = A_WETH.resolve_to_evm_token()
-        except (UnknownAsset, WrongAssetType) as e:
-            message = f'One of the base assets was deleted/modified from the DB: {e!s}'
-            log.critical(message)
-            raise RuntimeError(message + '. Add it back manually or contact support') from e
+        Inquirer.__instance.weth = EvmToken(
+            address=string_to_evm_address(ETH_SPECIAL_ADDRESS),
+            chain_id=ChainID.ETHEREUM,
+            symbol='WETH',
+            name='Wrapped Ether',
+            decimals=18,
+        )
+        Inquirer.__instance.usd = A_USD
+
+        # Initialize default oracle order
+        Inquirer.__instance._oracles = (
+            CurrentPriceOracle.COINGECKO,
+            CurrentPriceOracle.DEFILLAMA,
+            CurrentPriceOracle.CRYPTOCOMPARE,
+            CurrentPriceOracle.YAHOOFINANCE,
+            CurrentPriceOracle.UNISWAPV2,
+            CurrentPriceOracle.UNISWAPV3,
+        )
+        Inquirer.__instance._oracle_instances = [
+            getattr(Inquirer.__instance, f'_{oracle!s}') for oracle in Inquirer.__instance._oracles
+            if hasattr(Inquirer.__instance, f'_{oracle!s}') and getattr(Inquirer.__instance, f'_{oracle!s}') is not None
+        ]
+        Inquirer.__instance._oracles_not_onchain = (
+            CurrentPriceOracle.COINGECKO,
+            CurrentPriceOracle.DEFILLAMA,
+            CurrentPriceOracle.CRYPTOCOMPARE,
+            CurrentPriceOracle.YAHOOFINANCE,
+        )
+        Inquirer.__instance._oracle_instances_not_onchain = [
+            getattr(Inquirer.__instance, f'_{oracle!s}') for oracle in Inquirer.__instance._oracles_not_onchain
+            if hasattr(Inquirer.__instance, f'_{oracle!s}') and getattr(Inquirer.__instance, f'_{oracle!s}') is not None
+        ]
 
         return Inquirer.__instance
 
