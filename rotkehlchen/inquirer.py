@@ -607,11 +607,37 @@ class Inquirer:
             else:
                 oracles = instance._oracles
                 oracle_instances = instance._oracle_instances
+                
+            # Check if there's a preferred oracle for this asset
+            preferred_oracle, _ = GlobalDBHandler.get_asset_oracle_preference(from_asset.identifier)
+            if preferred_oracle is not None:
+                # If there's a preferred oracle, try it first
+                try:
+                    oracle_idx = oracles.index(preferred_oracle)
+                    oracle_instance = oracle_instances[oracle_idx]
+                    
+                    try:
+                        price, is_error = instance._try_oracle_price_query(
+                            oracle=preferred_oracle,
+                            oracle_instance=oracle_instance,
+                            from_asset=from_asset,
+                            to_asset=to_asset,
+                            coming_from_latest_price=coming_from_latest_price,
+                        )
+                        if not is_error:
+                            return price, preferred_oracle
+                    except RecursionError:
+                        if coming_from_latest_price:
+                            raise
+                except ValueError:
+                    # If the preferred oracle is not in the list, just continue with the normal flow
+                    pass
         else:
             return ZERO_PRICE, CurrentPriceOracle.BLOCKCHAIN
 
         price = ZERO_PRICE
         oracle_queried = CurrentPriceOracle.BLOCKCHAIN
+
         for oracle, oracle_instance in zip(oracles, oracle_instances, strict=True):
             if (
                 isinstance(oracle_instance, CurrentPriceOracleInterface) and

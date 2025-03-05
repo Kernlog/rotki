@@ -3355,3 +3355,42 @@ class HistoricalPricesPerAssetResource(BaseMethodView):
             from_timestamp=from_timestamp,
             only_cache_period=only_cache_period,
         )
+
+
+class AssetIconResource(BaseMethodView):
+
+    def get(self, asset_identifier: str) -> Response:
+        return assets.get_asset_icon(asset_identifier=asset_identifier)
+
+
+class AssetOraclePreferenceResource(BaseMethodView):
+
+    @use_kwargs(assets.AssetOraclePreferenceSchema, location='json')
+    def put(
+            self,
+            asset_identifier: str,
+            asset: Asset,
+            current_price_oracle: CurrentPriceOracle | None = None,
+            historical_price_oracle: HistoricalPriceOracle | None = None,
+    ) -> Response:
+        return assets.set_asset_oracle_preference(
+            asset=asset,
+            current_price_oracle=current_price_oracle,
+            historical_price_oracle=historical_price_oracle,
+        )
+
+    def get(self, asset_identifier: str) -> Response:
+        try:
+            asset = Asset(asset_identifier)
+        except UnknownAsset as e:
+            return api_response(wrap_in_fail_result(str(e)), status_code=HTTPStatus.BAD_REQUEST)
+        
+        return assets.get_asset_oracle_preference(asset=asset)
+
+    def delete(self, asset_identifier: str) -> Response:
+        try:
+            asset = Asset(asset_identifier)
+        except UnknownAsset as e:
+            return api_response(wrap_in_fail_result(str(e)), status_code=HTTPStatus.BAD_REQUEST)
+        
+        return assets.delete_asset_oracle_preference(asset=asset)

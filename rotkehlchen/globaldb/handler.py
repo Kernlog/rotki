@@ -2160,3 +2160,110 @@ class GlobalDBHandler:
         self.packaged_db_lock.release()
         self.conn.transaction_lock.release()
         self.conn.in_callback.release()
+
+    @classmethod
+    def get_assets_in_same_collection(cls, asset_identifier: str) -> list[Asset]:
+        """Get all assets that are in the same collection as the given asset"""
+        cursor = cls._get_cursor()
+        query = """
+        SELECT asset FROM multiasset_mappings WHERE collection_id = (
+            SELECT collection_id FROM multiasset_mappings WHERE asset=?
+        )
+        """
+        cursor.execute(query, (asset_identifier,))
+        result = cursor.fetchall()
+        if not result:
+            return [Asset(asset_identifier)]
+        return [Asset(x[0]) for x in result]
+
+    @classmethod
+    def set_asset_oracle_preference(
+            cls,
+            asset_identifier: str,
+            current_price_oracle: CurrentPriceOracle | None = None,
+            historical_price_oracle: HistoricalPriceOracle | None = None,
+    ) -> None:
+        """Set the preferred oracle for an asset"""
+        cursor = cls._get_cursor()
+        
+        # First check if the asset exists
+        cursor.execute('SELECT 1 FROM assets WHERE identifier=?', (asset_identifier,))
+        if cursor.fetchone() is None:
+            raise UnknownAsset(asset_identifier)
+            
+        # Then check if there's already a preference for this asset
+        cursor.execute(
+            'SELECT 1 FROM asset_oracle_preferences WHERE asset_identifier=?',
+            (asset_identifier,),
+        )
+        
+        current_oracle_value = None
+        if current_price_oracle is not None:
+            current_oracle_value = current_price_oracle.value
+            
+        historical_oracle_value = None
+        if historical_price_oracle is not None:
+            historical_oracle_value = historical_price_oracle.serialize_for_db()
+            
+        if cursor.fetchone() is None:
+            # Insert new preference
+            cursor.execute(
+                'INSERT INTO asset_oracle_preferences (asset_identifier, current_price_oracle, historical_price_oracle) VALUES (?, ?, ?)',
+                (asset_identifier, current_oracle_value, historical_oracle_value),
+            )
+        else:
+            # Update existing preference
+            if current_price_oracle is not None and historical_price_oracle is not None:
+                cursor.execute(
+                    'UPDATE asset_oracle_preferences SET current_price_oracle=?, historical_price_oracle=? WHERE asset_identifier=?',
+                    (current_oracle_value, historical_oracle_value, asset_identifier),
+                )
+            elif current_price_oracle is not None:
+                cursor.execute(
+                    'UPDATE asset_oracle_preferences SET current_price_oracle=? WHERE asset_identifier=?',
+                    (current_oracle_value, asset_identifier),
+                )
+            elif historical_price_oracle is not None:
+                cursor.execute(
+                    'UPDATE asset_oracle_preferences SET historical_price_oracle=? WHERE asset_identifier=?',
+                    (historical_oracle_value, asset_identifier),
+                )
+        
+        cls._conn.commit()
+        
+    @classmethod
+    def get_asset_oracle_preference(
+            cls,
+            asset_identifier: str,
+    ) -> tuple[CurrentPriceOracle | None, HistoricalPriceOracle | None]:
+        """Get the preferred oracle for an asset"""
+        cursor = cls._get_cursor()
+        cursor.execute(
+            'SELECT current_price_oracle, historical_price_oracle FROM asset_oracle_preferences WHERE asset_identifier=?',
+            (asset_identifier,),
+        )
+        result = cursor.fetchone()
+        if result is None:
+            return None, None
+            
+        current_oracle, historical_oracle = result
+        
+        current_price_oracle = None
+        if current_oracle is not None:
+            current_price_oracle = CurrentPriceOracle(current_oracle)
+            
+        historical_price_oracle = None
+        if historical_oracle is not None:
+            historical_price_oracle = HistoricalPriceOracle.deserialize_from_db(historical_oracle)
+            
+        return current_price_oracle, historical_price_oracle
+        
+    @classmethod
+    def delete_asset_oracle_preference(cls, asset_identifier: str) -> None:
+        """Delete the oracle preference for an asset"""
+        cursor = cls._get_cursor()
+        cursor.execute(
+            'DELETE FROM asset_oracle_preferences WHERE asset_identifier=?',
+            (asset_identifier,),
+        )
+        cls._conn.commit()

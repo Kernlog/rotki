@@ -218,6 +218,8 @@ INSERT OR IGNORE INTO price_history_source_types(type, seq) VALUES ('G', 7);
 INSERT OR IGNORE INTO price_history_source_types(type, seq) VALUES ('H', 8);
 /* ALCHEMY */
 INSERT OR IGNORE INTO price_history_source_types(type, seq) VALUES ('I', 9);
+/* YAHOOFINANCE */
+INSERT OR IGNORE INTO price_history_source_types(type, seq) VALUES ('J', 10);
 """
 
 DB_CREATE_PRICE_HISTORY = """
@@ -330,6 +332,17 @@ CREATE TABLE IF NOT EXISTS location_unsupported_assets (
 );
 """
 
+# Table to store asset-oracle preferences
+DB_CREATE_ASSET_ORACLE_PREFERENCES = """
+CREATE TABLE IF NOT EXISTS asset_oracle_preferences (
+    asset_identifier TEXT NOT NULL COLLATE NOCASE,
+    current_price_oracle INTEGER,
+    historical_price_oracle CHAR(1) REFERENCES price_history_source_types(type),
+    FOREIGN KEY(asset_identifier) REFERENCES assets(identifier) ON UPDATE CASCADE ON DELETE CASCADE,
+    PRIMARY KEY(asset_identifier)
+);
+"""
+
 DB_CREATE_INDEXES = """
 CREATE INDEX IF NOT EXISTS idx_assets_identifier ON assets (identifier);
 CREATE INDEX IF NOT EXISTS idx_evm_tokens_identifier ON evm_tokens (identifier, chain, protocol);
@@ -369,6 +382,7 @@ BEGIN TRANSACTION;
 {DB_CREATE_DEFAULT_RPC_NODES}
 {DB_CREATE_LOCATION_ASSET_MAPPINGS}
 {DB_CREATE_LOCATION_UNSUPPORTED_ASSETS}
+{DB_CREATE_ASSET_ORACLE_PREFERENCES}
 {DB_CREATE_INDEXES}
 COMMIT;
 PRAGMA foreign_keys=on;

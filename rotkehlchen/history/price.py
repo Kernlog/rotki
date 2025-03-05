@@ -207,6 +207,7 @@ class PriceHistorian:
             to_asset=to_asset,
             timestamp=timestamp,
         )
+
         if from_asset == to_asset:
             return Price(ONE)
 
@@ -240,6 +241,47 @@ class PriceHistorian:
         )) is not None:
             return cached_price_entry.price
 
+        # Check if there's a preferred oracle for this asset
+        _, preferred_oracle = GlobalDBHandler.get_asset_oracle_preference(from_asset.identifier)
+        if preferred_oracle is not None:
+            # If there's a preferred oracle, try it first
+            instance = PriceHistorian()
+            assert instance._oracle_instances is not None, 'PriceHistorian should never be called before setting the oracles'
+            
+            for oracle_instance in instance._oracle_instances:
+                if oracle_instance.oracle == preferred_oracle:
+                    try:
+                        if oracle_instance.can_query_history(from_asset, to_asset, timestamp):
+                            price = oracle_instance.query_historical_price(
+                                from_asset=from_asset,
+                                to_asset=to_asset,
+                                timestamp=timestamp,
+                            )
+                            log.debug(
+                                f'Historical price oracle {preferred_oracle} got price',
+                                from_asset=from_asset,
+                                to_asset=to_asset,
+                                price=price,
+                                timestamp=timestamp,
+                            )
+                            GlobalDBHandler.add_historical_prices([HistoricalPrice(
+                                from_asset=from_asset,
+                                to_asset=to_asset,
+                                source=preferred_oracle,
+                                timestamp=timestamp,
+                                price=price,
+                            )])
+                            return price
+                    except (
+                        PriceQueryUnsupportedAsset,
+                        NoPriceForGivenTimestamp,
+                        UnknownAsset,
+                        WrongAssetType,
+                        RemoteError,
+                    ):
+                        # If the preferred oracle fails, continue with the normal flow
+                        break
+
         # else cryptocompare also has historical fiat to fiat data
         instance = PriceHistorian()
         oracles = instance._oracles
@@ -256,7 +298,7 @@ class PriceHistorian:
             )
             if can_query_history is False:
                 continue
-
+                
             try:
                 price = oracle_instance.query_historical_price(
                     from_asset=from_asset,
@@ -293,7 +335,7 @@ class PriceHistorian:
                 price=price,
             )])
             return price
-
+                
         raise NoPriceForGivenTimestamp(
             from_asset=from_asset,
             to_asset=to_asset,

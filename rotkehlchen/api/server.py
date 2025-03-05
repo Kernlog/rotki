@@ -152,6 +152,9 @@ from rotkehlchen.api.v1.resources import (
     UsersResource,
     WatchersResource,
     create_blueprint,
+    AssetsResource,
+    AssetIconResource,
+    AssetOraclePreferenceResource,
 )
 from rotkehlchen.api.websockets.notifier import RotkiNotifier, RotkiWSApp
 from rotkehlchen.logging import RotkehlchenLogsAdapter
